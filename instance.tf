@@ -125,7 +125,7 @@ resource "aws_security_group" "ec2_allow_rule" {
 
 locals {
   instances = {
-    splunk-forwarder = {name = "splunk-forwrder", instance-type = "${var.instance_type_forwarder}", userdata = "${file("userdata_forwarder.sh")}"},
+    splunk-forwarder = {name = "splunk-forwrder", instance-type = "${var.instance_type_forwarder}", userdata = "" },
     splunk-server    = {name = "splunk-server", instance-type = "${var.instance_type_server}", userdata = "${file("userdata_server.sh")}"},
   }
   
@@ -145,6 +145,53 @@ resource "aws_instance" "ec2-instance" {
   }
 
  }
+
+# ~~~~~~~~~~~~ Configure the splunk forwarder ~~~~~~~~~~~~~~~ #
+
+resource "null_resource" "forwarder-config-script" {
+
+  provisioner "local-exec" {
+    command = templatefile("userdata_forwarder.tpl", {
+
+      splunk-server-ip = aws_instance.ec2-instance["splunk-server"].public_ip
+
+    })
+  }
+
+  depends_on = [aws_instance.ec2-instance]
+  
+}
+
+resource "null_resource" "forwarder-config" {
+
+ connection {
+    type        = "ssh"
+    host        = aws_instance.ec2-instance["splunk-forwarder"].public_ip
+    user        = "ec2-user"
+    private_key = file(var.keypair_location) # Location of the Private Key
+    timeout     = "4m"
+  }
+  
+  provisioner "file" {
+    source      = "userdata_forwarder.sh"
+    destination = "userdata_forwarder.sh"
+  }
+
+    provisioner "file" {
+    source      = "jfrog-config.sh"
+    destination = "jfrog-config.sh"
+  }
+  
+  provisioner "remote-exec" {
+    inline = [
+      "bash userdata_forwarder.sh",
+      "bash jfrog-config.sh",
+    ]
+  }
+
+  depends_on = [null_resource.forwarder-config-script]
+  
+}
 
 # ~~~ To delete the ec2-key-1.pem file while destroying this infrastructure ~~~ #
 
