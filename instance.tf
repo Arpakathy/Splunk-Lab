@@ -148,19 +148,28 @@ resource "aws_instance" "ec2-instance" {
 
 # ~~~~~~~~~~~~ Configure the splunk forwarder ~~~~~~~~~~~~~~~ #
 
-resource "null_resource" "forwarder-config-script" {
 
-  provisioner "local-exec" {
-    command = templatefile("userdata_forwarder.tpl", {
+# Use the templatefile function to render the .tpl file
 
-      splunk-server-ip = aws_instance.ec2-instance["splunk-server"].public_ip
+data "template_file" "forwarder-config-script" {
 
-    })
+  template = file("userdata_forwarder.tpl")
+  vars = {
+   splunk-server-ip = aws_instance.ec2-instance["splunk-server"].public_ip
   }
 
-  depends_on = [aws_instance.ec2-instance]
-  
+ depends_on = [aws_instance.ec2-instance]
+
 }
+
+resource "null_resource" "forwarder-config-script" {
+
+ # Use a local-exec provisioner to rename the rendered script 
+  provisioner "local-exec" {
+    command = "echo '${data.template_file.forwarder-config-script.rendered}' >> userdata_forwarder.sh && chmod +x userdata_forwarder.sh"
+  }
+    depends_on = [data.template_file.forwarder-config-script]
+  }
 
 resource "null_resource" "forwarder-config" {
 
@@ -171,11 +180,6 @@ resource "null_resource" "forwarder-config" {
     private_key = file(var.keypair_location) # Location of the Private Key
     timeout     = "4m"
   }
-  
-  provisioner "file" {
-    source      = "userdata_forwarder.sh"
-    destination = "userdata_forwarder.sh"
-  }
 
     provisioner "file" {
     source      = "jfrog-config.sh"
@@ -184,12 +188,12 @@ resource "null_resource" "forwarder-config" {
   
   provisioner "remote-exec" {
     inline = [
-      "bash userdata_forwarder.sh",
+      "bash ${data.template_file.forwarder-config-script.rendered}",
       "bash jfrog-config.sh",
     ]
   }
 
-  depends_on = [null_resource.forwarder-config-script]
+  depends_on = [data.template_file.forwarder-config-script]
   
 }
 
